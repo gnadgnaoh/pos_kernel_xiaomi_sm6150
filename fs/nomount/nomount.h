@@ -46,8 +46,6 @@ DEFINE_STATIC_SRCU(nomount_srcu);
 struct nm_iop {
     struct inode_operations fake_iop; /* MUST be exactly at offset 0 */
     const struct inode_operations *orig_iop;
-    struct dentry_operations fake_dop;
-    const struct dentry_operations *orig_dop;
     struct nomount_dir_node *dir_node;
     struct rcu_head rcu;
 };
@@ -76,24 +74,11 @@ struct nm_inode_info {
     u8 flags;
 };
 
-struct nomount_child_node {
-    struct rcu_head rcu;
-    u32 name_hash;
-    u32 fake_ino;
-    int id;
-    u8 d_type;
-    u8 flags;
-    u16 name_len;
-    struct nomount_rule *rule;
-    char name[]; 
-};
-
 struct nomount_child_array {
     struct rcu_head rcu;
     int count;
     int capacity;
-    u32 *hashes;
-    struct nomount_child_node **nodes;
+    u32 hashes[];
 };
 
 struct nomount_dir_node {
@@ -101,11 +86,9 @@ struct nomount_dir_node {
     struct nomount_child_array __rcu *children;
     u64 bloom_mask;
     struct inode *v_inode;
-    union {
-        struct inode *dir_inode;
-        struct nomount_rule *owner_rule;
-        unsigned long _tag_ptr;
-    };
+    unsigned long _tag_ptr;
+    struct nm_iop __rcu *iop;
+    struct nm_fop __rcu *fop;
     seqcount_t seq;
 };
 
@@ -114,6 +97,8 @@ struct nomount_rule {
     u32 v_hash;
     unsigned int target_uid;
     u16 v_len;
+    u16 r_len;
+    u16 child_len;
     u8  flags;
 
     struct hlist_node vpath_node;
@@ -123,6 +108,13 @@ struct nomount_rule {
     unsigned long v_ino;
     char paths[]; 
 };
+
+#define nm_get_child_name(rule) (nm_get_vpath(rule) + (rule)->v_len - (rule)->child_len)
+
+static __always_inline struct nomount_rule **nm_get_child_rules(struct nomount_child_array *array)
+{
+    return (struct nomount_rule **)(array->hashes + array->capacity);
+}
 
 struct nm_rule_info {
     u32 flags;
